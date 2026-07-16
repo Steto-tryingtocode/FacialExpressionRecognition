@@ -9,6 +9,8 @@ __pycache__/
 #Dataset
 dataset/raw/
 
+.venv/
+
 # Distribution / packaging
 .Python
 build/
