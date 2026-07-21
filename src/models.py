@@ -46,7 +46,7 @@ class DeepCNN(nn.Module):
     Confronto per valutare il guadagno di capacità/regolarizzazione
     rispetto alla baseline."""
 
-    def __init__(self, num_classes=7, dropout=0.4):
+    def __init__(self, num_classes=7, dropout=0.5):
         super().__init__()
 
         def conv_block(in_ch, out_ch):

@@ -5,6 +5,7 @@ prodotti in 02_preprocessing.ipynb.
 """
 
 import os
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from PIL import Image
@@ -13,6 +14,13 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 
 PROCESSED_DIR = os.path.join('..', 'dataset', 'processed')
+
+
+def normalize_path(path_str):
+    """Converte un path in forma portabile, indipendentemente da quale OS
+    l'ha scritto nel CSV (Windows salva con backslash, che su Linux/WSL
+    non viene interpretato come separatore)."""
+    return str(Path(path_str.replace('\\', '/')))
 
 
 def load_label_map(df):
@@ -26,7 +34,7 @@ def load_images_to_array(df, label2idx, size=48):
     """Carica tutte le immagini indicate nel DataFrame in un array numpy uint8."""
     arr = np.zeros((len(df), size, size), dtype=np.uint8)
     for i, path in enumerate(df['path']):
-        arr[i] = np.array(Image.open(path))
+        arr[i] = np.array(Image.open(normalize_path(path)))
     labels = df['emotion'].map(label2idx).values.astype(np.int64)
     return arr, labels
 
