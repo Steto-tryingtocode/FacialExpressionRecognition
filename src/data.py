@@ -87,13 +87,15 @@ class FERDataset(Dataset):
     augmentation (solo se train=True), più aggressiva sulla classe minoritaria
     indicata da disgust_idx."""
 
-    def __init__(self, images, labels, mean, std, train=False, disgust_idx=None):
+    def __init__(self, images, labels, mean, std, train=False, disgust_idx=None,
+                 resize_for_resnet=False):
         self.images = images
         self.labels = labels
         self.mean = mean
         self.std = std
         self.train = train
         self.disgust_idx = disgust_idx
+        self.resize_for_resnet = resize_for_resnet
 
         self.base_augment = transforms.Compose([
             transforms.RandomHorizontalFlip(p=0.5),
@@ -123,21 +125,35 @@ class FERDataset(Dataset):
         img_t = (img_t - self.mean) / self.std
         img_t = img_t.unsqueeze(0)  # (1, 48, 48)
 
+        if self.resize_for_resnet:
+            img_t = img_t.unsqueeze(0)  # (1, 1, 48, 48), serve la batch dim per interpolate
+            img_t = torch.nn.functional.interpolate(img_t, size=(224, 224), mode='bilinear', align_corners=False)
+            img_t = img_t.squeeze(0)  # (1, 224, 224) - Manteniamo un singolo canale
+
         return img_t, torch.tensor(label, dtype=torch.long)
 
 
-def get_dataloaders(npz_path, label2idx, batch_size=64, num_workers=0):
+def get_dataloaders(npz_path, label2idx, batch_size=64, num_workers=0, resize_for_resnet=False):
     """Costruisce train/val/test DataLoader a partire dagli array precomputati.
     num_workers=0 di default: su Windows/VS Code il multiprocessing dei
     DataLoader può bloccarsi, e con dataset così piccoli (tutto in RAM) non
-    serve comunque."""
+    serve comunque.
+    
+    resize_for_resnet=True: produce tensori (1, 224, 224) invece di (1, 48, 48),
+    necessario per build_resnet18_transfer (che è stata adattata per input a 
+    singolo canale).
+    Riduci batch_size (es. 32) se usi questa opzione, dato l'ingombro maggiore
+    in VRAM rispetto alle immagini 48x48.
+    """
     data = load_arrays(npz_path)
     disgust_idx = label2idx.get('disgust')
 
     train_dataset = FERDataset(data['X_train'], data['y_train'], data['mean'], data['std'],
-                                 train=True, disgust_idx=disgust_idx)
-    val_dataset = FERDataset(data['X_val'], data['y_val'], data['mean'], data['std'], train=False)
-    test_dataset = FERDataset(data['X_test'], data['y_test'], data['mean'], data['std'], train=False)
+                                 train=True, disgust_idx=disgust_idx, resize_for_resnet=resize_for_resnet)
+    val_dataset = FERDataset(data['X_val'], data['y_val'], data['mean'], data['std'],
+                               train=False, resize_for_resnet=resize_for_resnet)
+    test_dataset = FERDataset(data['X_test'], data['y_test'], data['mean'], data['std'],
+                                train=False, resize_for_resnet=resize_for_resnet)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)

@@ -30,12 +30,12 @@ class FocalLoss(nn.Module):
         return focal_loss
 
 
-def compute_class_weights(y_train, num_classes):
+def compute_class_weights(y_train, num_classes, power=0.3):
     """Pesi inversamente proporzionali alla frequenza di classe, normalizzati
     in modo che la media dei pesi sia 1 (mantiene la scala della loss
     confrontabile tra esperimenti con/senza weighting)."""
     counts = np.bincount(y_train, minlength=num_classes)
-    weights = 1.0 / counts
+    weights = 1.0 / (counts ** power)
     weights = weights / weights.sum() * num_classes
     return torch.tensor(weights, dtype=torch.float32)
 
@@ -86,7 +86,7 @@ def run_epoch(model, loader, criterion, optimizer, device, train=True, scaler=No
 
 def train_model(model, train_loader, val_loader, num_classes,
                  y_train=None, use_class_weights=True,
-                 loss_type='ce', focal_gamma=2.0,
+                 loss_type='ce', focal_gamma=2.0, power=0.3,
                  epochs=50, lr=1e-3, weight_decay=1e-4,
                  patience=7, device=None, checkpoint_path='best_model.pt',
                  use_scheduler=True, scheduler_factor=0.5, scheduler_patience=3,
