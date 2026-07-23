@@ -12,3 +12,5 @@ scikit-learn>=1.0.0
 
 # --- Visualizzazione ---
 matplotlib>=3.8.0
+
+opencv-python
