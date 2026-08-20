@@ -8,14 +8,15 @@ Facial expression classification across 7 classes (angry, disgust, fear, happy, 
 ```text
 FacialExpressionRecognition/
 ├── notebooks/
-│   ├── 01_eda.ipynb              # EDA: class distribution, duplicates, samples
-│   ├── 03_experiments.ipynb      # model training and evaluation
-│   └── 04_error_analysis.ipynb   # qualitative error analysis
+│   ├── eda.ipynb                 # EDA: class distribution, duplicates, samples
+│   ├── preprocessing.ipynb       # exploratory draft of the array-building pipeline (reference only, superseded by src/data.py)
+│   ├── experiments.ipynb         # model training and evaluation (CNNs, transfer learning, ensembling)
+│   └── error_analysis.ipynb      # qualitative error analysis
 ├── src/
 │   ├── data.py                   # data loading, normalization, Dataset/DataLoader
-│   ├── models.py                 # BaselineCNN, DeepCNN, ResNet18 transfer
+│   ├── models.py                 # BaselineCNN, DeepCNN, ResNet18 and EfficientNet-B0 transfer
 │   ├── train.py                  # training loop, class weighting, focal loss, scheduler
-│   ├── evaluate.py               # confusion matrix, per-class metrics, curves
+│   ├── evaluate.py               # confusion matrix, per-class metrics, curves, checkpoint ensembling
 │   └── inference.py              # real-time webcam demo
 ├── dataset/
 │   ├── raw/                      # original images (train/test per class)
@@ -54,19 +55,22 @@ Download [FER2013 from Kaggle](https://www.kaggle.com/datasets/msambare/fer2013)
 
 ## Execution Order
 
-1. **`01_eda.ipynb`** — explores the dataset, removes duplicates (both within each split and between train/test, to prevent data leakage), produces the stratified train/val split, and saves the clean indices in `dataset/processed/`.
+1. **`eda.ipynb`** — explores the dataset, removes duplicates (both within each split and between train/test, to prevent data leakage), produces the stratified train/val split, and saves the clean indices in `dataset/processed/`.
 
-2. **`03_experiments.ipynb`** — builds precomputed arrays (`build_and_save_arrays`, to be run only once or when indices change), trains models, and evaluates results. It contains the various experiments (architecture, loss, class weighting) described below.
+2. **`experiments.ipynb`** — builds precomputed arrays (`build_and_save_arrays`, to be run only once or when indices change), trains models, and evaluates results. It contains the various experiments (architecture, loss, class weighting, transfer learning, ensembling) described below.
 
-3. **`04_error_analysis.ipynb`** — qualitative error analysis on the best model: which classes are most confused, visual examples, and the model's confidence on incorrect predictions.
+3. **`error_analysis.ipynb`** — qualitative error analysis on the best model: which classes are most confused, visual examples, and the model's confidence on incorrect predictions.
+
+`preprocessing.ipynb` is an earlier, exploratory version of the array-building step and is kept only as reference; it is not part of the required pipeline (`build_and_save_arrays` in `src/data.py`, run from `experiments.ipynb`, supersedes it).
 
 ## Models and Results
 
-Three architectures compared (`src/models.py`):
+Four architectures compared (`src/models.py`):
 
 - **`BaselineCNN`** — small CNN, 3 convolutional blocks, ~680k parameters
 - **`DeepCNN`** — deeper, batch norm, ~3.5M parameters
-- **`build_resnet18_transfer`** — ResNet18 pre-trained on ImageNet, adapted for 1-channel grayscale input (requires 224x224 resize, see `get_dataloaders(..., resize_for_resnet=True)`)
+- **`build_resnet18_transfer`** — ResNet18 pre-trained on ImageNet, adapted for 1-channel grayscale input (requires 224x224 resize, see `get_dataloaders(..., resize_for_resnet=True)`); tested both with a frozen backbone and fully fine-tuned (`freeze_backbone=False`, needs a lower LR — see note below)
+- **`build_efficientnet_transfer`** — EfficientNet-B0 pre-trained on ImageNet, adapted the same way as ResNet18
 
 Balancing strategies for the minority class (`disgust`, ~1.5% of the dataset), configurable in `train_model`: class weighting (adjustable `power`), focal loss, or a combination of both.
 
@@ -76,10 +80,15 @@ Balancing strategies for the minority class (`disgust`, ~1.5% of the dataset), c
 | DeepCNN | Weighted CE | 62.7% | 0.582 | 0.629 |
 | DeepCNN | Focal + full class weights | 53.1% | 0.491 | 0.544 |
 | DeepCNN | Focal, no class weights | 65.1% | 0.592 | 0.644 |
-| **DeepCNN** | **Focal + lightweight class weights (power=0.3) + weight_decay=5e-4** | **64.9%** | **0.618** | **0.648** |
+| DeepCNN | Focal + lightweight class weights (power=0.3) + weight_decay=5e-4 | 64.9% | 0.618 | 0.648 |
 | ResNet18 (frozen backbone) | Weighted CE | 41.9% | 0.345 | 0.404 |
+| ResNet18 (fine-tuned, lr=1e-4, no AMP) | Weighted CE | 65.5% | 0.612 | 0.651 |
+| EfficientNet-B0 (frozen backbone) | Weighted CE | 44.4% | 0.368 | 0.424 |
+| **Ensemble** (BaselineCNN + DeepCNN variants + ResNet18 fine-tuned, softmax averaging) | — | **67.7%** | **0.638** | **0.672** |
 
-The best model (`results/deep_cnn_focal_lightweight.pt`) is used by default in the webcam demo. The average human accuracy reported in literature on FER2013 is around 65-68%, so the results are near human-level performance on an intrinsically ambiguous/noisy dataset.
+Fine-tuning the full ResNet18 backbone (rather than just the classifier head) needs a much lower learning rate and mixed precision disabled — the default `lr=1e-3` with `use_amp=True` diverges (NaN loss) when combined with unfrozen BatchNorm layers.
+
+The best single-model checkpoint (`results/deep_cnn_focal_lightweight.pt`) is used by default in the webcam demo, since it runs natively at 48x48 and is fast enough for real time; the ensemble (`ensemble_predictions` in `src/evaluate.py`) gives the best offline accuracy but mixes checkpoints at 48x48 and 224x224 and is not wired into `run_demo.py`. The average human accuracy reported in literature on FER2013 is around 65-68%, so the results are near/at human-level performance on an intrinsically ambiguous/noisy dataset.
 
 ## Webcam Demo
 
@@ -104,7 +113,7 @@ cp dataset/processed/fer_arrays.npz /mnt/c/path/to/repo/dataset/processed/
 
 ## Known Project Limitations
 
-- **FER2013 is a noisy dataset**: some images are mislabeled, contain watermarks, or are not faces — an inherent limitation discussed in `01_eda.ipynb`.
+- **FER2013 is a noisy dataset**: some images are mislabeled, contain watermarks, or are not faces — an inherent limitation discussed in `eda.ipynb`.
 - **`disgust`** remains the hardest class due to extreme imbalance (~1.5% of the data); no tested balancing strategy completely eliminates the precision/recall trade-off for this class.
-- **`fear`** is systematically confused with `sad` and `surprise` across all experiments — see `04_error_analysis.ipynb` for the qualitative analysis.
-- **Transfer learning (ResNet18)** with a frozen backbone performed significantly worse than CNNs trained from scratch, likely due to the large domain gap between ImageNet (natural RGB photos) and FER2013 (low native resolution grayscale faces).
+- **`fear`** is systematically confused with `sad` and `surprise` across all experiments — see `error_analysis.ipynb` for the qualitative analysis.
+- **Transfer learning with a frozen backbone** (both ResNet18 and EfficientNet-B0) performed significantly worse than CNNs trained from scratch, likely due to the large domain gap between ImageNet (natural RGB photos) and FER2013 (low native resolution grayscale faces). Fully fine-tuning ResNet18 closes most of this gap and slightly beats the best from-scratch CNN, but at a much higher training cost; EfficientNet-B0 was only tested frozen.
