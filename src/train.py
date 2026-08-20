@@ -90,7 +90,7 @@ def train_model(model, train_loader, val_loader, num_classes,
                  epochs=50, lr=1e-3, weight_decay=1e-4,
                  patience=7, device=None, checkpoint_path='best_model.pt',
                  use_scheduler=True, scheduler_factor=0.5, scheduler_patience=3,
-                 verbose=True):
+                 use_amp=True, verbose=True):
     """Training loop completo con early stopping su val loss.
 
     Parametri chiave:
@@ -103,6 +103,10 @@ def train_model(model, train_loader, val_loader, num_classes,
     - checkpoint_path: dove salvare i pesi del modello con val loss migliore
     - use_scheduler: se True, dimezza (di default) il LR quando la val loss
       si stabilizza per scheduler_patience epoche, invece di restare fisso
+    - use_amp: se True (default) usa mixed precision su GPU. Disattivalo per il
+      fine-tuning completo di backbone pretrainati con LR non trascurabile:
+      fp16 + BatchNorm allenata + LR alto è una combinazione che facilmente
+      manda la loss a NaN.
 
     Ritorna il modello con i pesi migliori caricati, e la history (dict di liste,
     include anche 'lr' per vedere quando lo scheduler è intervenuto)
@@ -141,7 +145,7 @@ def train_model(model, train_loader, val_loader, num_classes,
             optimizer, mode='min', factor=scheduler_factor, patience=scheduler_patience)
 
     # mixed precision: solo su GPU, non ha senso/non è supportato su CPU
-    scaler = torch.cuda.amp.GradScaler() if device.type == 'cuda' else None
+    scaler = torch.cuda.amp.GradScaler() if (device.type == 'cuda' and use_amp) else None
 
     history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': [], 'lr': []}
     best_val_loss = float('inf')

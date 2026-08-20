@@ -32,6 +32,39 @@ def get_predictions(model, loader, device=None):
     return np.concatenate(all_labels), np.concatenate(all_preds)
 
 
+@torch.no_grad()
+def ensemble_predictions(models, loaders, device=None):
+    """Media le probabilità softmax di più modelli già allenati e predice
+    dalla media. Utile per guadagnare qualche punto sfruttando la diversità
+    tra checkpoint esistenti, senza allenare nulla di nuovo.
+
+    loaders: un DataLoader per modello (stesso ordine di models). Serve per
+    poter mixare modelli con input diversi (es. DeepCNN a 48x48 e ResNet18
+    a 224x224) — passa lo stesso loader ripetuto se i modelli condividono
+    lo stesso formato di input. I loader devono avere shuffle=False e
+    iterare sugli stessi campioni nello stesso ordine (vale per i loader
+    prodotti da get_dataloaders, che non fanno shuffle su val/test)."""
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    for model in models:
+        model.to(device)
+        model.eval()
+
+    all_preds = []
+    all_labels = []
+
+    for batches in zip(*loaders):
+        labels = batches[0][1]
+        avg_probs = sum(
+            torch.softmax(model(images.to(device)), dim=1)
+            for model, (images, _) in zip(models, batches)
+        ) / len(models)
+        all_preds.append(avg_probs.argmax(dim=1).cpu().numpy())
+        all_labels.append(labels.numpy())
+
+    return np.concatenate(all_labels), np.concatenate(all_preds)
+
+
 def plot_training_curves(history, title='Training curves'):
     """Plotta loss e accuracy di train/val affiancate, dalla history
     ritornata da train_model."""

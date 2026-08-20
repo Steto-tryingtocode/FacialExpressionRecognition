@@ -20,9 +20,12 @@ FACE_CASCADE = cv2.CascadeClassifier(
 def preprocess_face(face_bgr, mean, std, size=48):
     """Converte un ritaglio di volto (BGR, da OpenCV) nel formato atteso
     dal modello: (1, 1, size, size), grayscale, normalizzato con le stesse
-    statistiche usate in training."""
+    statistiche usate in training.
+
+    Niente equalizeHist qui: il training (src/data.py, FERDataset) non lo
+    applica, quindi farlo solo in inference introduce un mismatch tra
+    la distribuzione vista in training e quella vista a runtime."""
     gray = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2GRAY)
-    gray = cv2.equalizeHist(gray)
     resized = cv2.resize(gray, (size, size), interpolation=cv2.INTER_AREA)
 
     tensor = torch.from_numpy(resized.astype(np.float32)) / 255.0
