@@ -108,6 +108,40 @@ def build_resnet18_transfer(num_classes=7, freeze_backbone=True):
     return model
 
 
+#############################################################################           EfficientNet-B0 pretrained su ImageNet, adattata a input 1 canale.
+def build_efficientnet_transfer(num_classes=7, freeze_backbone=True):
+    """EfficientNet-B0 pretrainata su ImageNet, adattata a input 1 canale.
+    Confronto ulteriore rispetto a ResNet18 per il transfer learning.
+
+    Nota: come ResNet18, richiede resize a 224x224 (vedi src/data.py,
+    resize_for_resnet=True)."""
+    model = tv_models.efficientnet_b0(weights=tv_models.EfficientNet_B0_Weights.IMAGENET1K_V1)
+
+    # adatta il primo layer conv a input 1 canale, mantenendo i pesi
+    # pretrainati mediati sui 3 canali originali
+    old_conv = model.features[0][0]
+    new_conv = nn.Conv2d(
+        in_channels=1,
+        out_channels=old_conv.out_channels,
+        kernel_size=old_conv.kernel_size,
+        stride=old_conv.stride,
+        padding=old_conv.padding,
+        bias=old_conv.bias is not None
+    )
+    with torch.no_grad():
+        new_conv.weight[:] = old_conv.weight.mean(dim=1, keepdim=True)
+    model.features[0][0] = new_conv
+
+    if freeze_backbone:
+        for param in model.features.parameters():
+            param.requires_grad = False
+
+    in_features = model.classifier[1].in_features
+    model.classifier[1] = nn.Linear(in_features, num_classes)
+
+    return model
+##############################################################################
+
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
