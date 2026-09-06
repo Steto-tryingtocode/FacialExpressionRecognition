@@ -70,7 +70,7 @@ Four architectures compared (`src/models.py`):
 - **`BaselineCNN`** — small CNN, 3 convolutional blocks, ~680k parameters
 - **`DeepCNN`** — deeper, batch norm, ~3.5M parameters
 - **`build_resnet18_transfer`** — ResNet18 pre-trained on ImageNet, adapted for 1-channel grayscale input (requires 224x224 resize, see `get_dataloaders(..., resize_for_resnet=True)`); tested both with a frozen backbone and fully fine-tuned (`freeze_backbone=False`, needs a lower LR — see note below)
-- **`build_efficientnet_transfer`** — EfficientNet-B0 pre-trained on ImageNet, adapted the same way as ResNet18
+- **`build_efficientnet_transfer`** — EfficientNet-B0 pre-trained on ImageNet, adapted the same way as ResNet18; also tested both with a frozen backbone and fully fine-tuned
 
 Balancing strategies for the minority class (`disgust`, ~1.5% of the dataset), configurable in `train_model`: class weighting (adjustable `power`), focal loss, or a combination of both.
 
@@ -84,9 +84,10 @@ Balancing strategies for the minority class (`disgust`, ~1.5% of the dataset), c
 | ResNet18 (frozen backbone) | Weighted CE | 41.9% | 0.345 | 0.404 |
 | ResNet18 (fine-tuned, lr=1e-4, no AMP) | Weighted CE | 65.5% | 0.612 | 0.651 |
 | EfficientNet-B0 (frozen backbone) | Weighted CE | 44.4% | 0.368 | 0.424 |
-| **Ensemble** (BaselineCNN + DeepCNN variants + ResNet18 fine-tuned, softmax averaging) | — | **67.7%** | **0.638** | **0.672** |
+| EfficientNet-B0 (fine-tuned, lr=1e-4, no AMP) | Weighted CE | 66.0% | 0.610 | 0.654 |
+| **Ensemble** (BaselineCNN + DeepCNN variants + ResNet18 fine-tuned + EfficientNet-B0 fine-tuned, softmax averaging) | — | **68.2%** | **0.645** | **0.677** |
 
-Fine-tuning the full ResNet18 backbone (rather than just the classifier head) needs a much lower learning rate and mixed precision disabled — the default `lr=1e-3` with `use_amp=True` diverges (NaN loss) when combined with unfrozen BatchNorm layers.
+Fine-tuning the full backbone (rather than just the classifier head) needs a much lower learning rate and mixed precision disabled — the default `lr=1e-3` with `use_amp=True` diverges (NaN loss) when combined with unfrozen BatchNorm layers. The same fix (`lr=1e-4`, `use_amp=False`) was applied to both ResNet18 and EfficientNet-B0 for a fair comparison.
 
 The best single-model checkpoint (`results/deep_cnn_focal_lightweight.pt`) is used by default in the webcam demo, since it runs natively at 48x48 and is fast enough for real time; the ensemble (`ensemble_predictions` in `src/evaluate.py`) gives the best offline accuracy but mixes checkpoints at 48x48 and 224x224 and is not wired into `run_demo.py`. The average human accuracy reported in literature on FER2013 is around 65-68%, so the results are near/at human-level performance on an intrinsically ambiguous/noisy dataset.
 
@@ -116,4 +117,4 @@ cp dataset/processed/fer_arrays.npz /mnt/c/path/to/repo/dataset/processed/
 - **FER2013 is a noisy dataset**: some images are mislabeled, contain watermarks, or are not faces — an inherent limitation discussed in `eda.ipynb`.
 - **`disgust`** remains the hardest class due to extreme imbalance (~1.5% of the data); no tested balancing strategy completely eliminates the precision/recall trade-off for this class.
 - **`fear`** is systematically confused with `sad` and `surprise` across all experiments — see `error_analysis.ipynb` for the qualitative analysis.
-- **Transfer learning with a frozen backbone** (both ResNet18 and EfficientNet-B0) performed significantly worse than CNNs trained from scratch, likely due to the large domain gap between ImageNet (natural RGB photos) and FER2013 (low native resolution grayscale faces). Fully fine-tuning ResNet18 closes most of this gap and slightly beats the best from-scratch CNN, but at a much higher training cost; EfficientNet-B0 was only tested frozen.
+- **Transfer learning with a frozen backbone** (both ResNet18 and EfficientNet-B0) performed significantly worse than CNNs trained from scratch, likely due to the large domain gap between ImageNet (natural RGB photos) and FER2013 (low native resolution grayscale faces). Fully fine-tuning closes most of this gap: both ResNet18 and EfficientNet-B0 slightly beat the best from-scratch CNN once fine-tuned, at a much higher training cost, with EfficientNet-B0 fine-tuned the best single model overall (66.0% accuracy) — though by a small margin over ResNet18 fine-tuned, and with slightly weaker recall on `disgust`/`fear`.
